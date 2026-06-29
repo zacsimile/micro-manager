@@ -82,6 +82,10 @@ public class SystemController {
       // as properties
       mmregistry_ = new MMRegistry(studio_, logger_);
 
+      // subscribes to Micro-Manager events so the GUI refreshes when properties or configuration
+      // groups are changed outside of EMU (e.g. via pycro-manager)
+      mmregistry_.startListening();
+
       // loads plugin list
       pluginloader_ = new UIPluginLoader(this);
 
@@ -554,6 +558,9 @@ public class SystemController {
     * Shutdowns the UI.
     */
    public void shutDown() {
+      if (mmregistry_ != null) {
+         mmregistry_.stopListening();
+      }
       if (configurationController_ != null) {
          configurationController_.shutDown();
       }

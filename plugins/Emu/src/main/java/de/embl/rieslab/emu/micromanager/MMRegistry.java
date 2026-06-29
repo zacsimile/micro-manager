@@ -47,6 +47,23 @@ public class MMRegistry {
    }
 
    /**
+    * Subscribes the {@link MMPropertiesRegistry} to the Micro-Manager event bus so that the EMU
+    * GUI refreshes when device properties or configuration groups are changed outside of EMU.
+    * Must be called after the constructor has run (the configuration groups are registered there).
+    */
+   public void startListening() {
+      mmPropRegistry_.registerForEvents();
+   }
+
+   /**
+    * Unsubscribes the {@link MMPropertiesRegistry} from the Micro-Manager event bus. Called when
+    * EMU shuts down.
+    */
+   public void stopListening() {
+      mmPropRegistry_.unregisterFromEvents();
+   }
+
+   /**
     * Returns the {@link MMPropertiesRegistry}.
     *
     * @return Instance of {@link MMPropertiesRegistry}

@@ -1,11 +1,15 @@
 package de.embl.rieslab.emu.micromanager.mmproperties;
 
+import com.google.common.eventbus.Subscribe;
 import de.embl.rieslab.emu.controller.log.Logger;
 import java.util.HashMap;
 import java.util.Iterator;
 import mmcorej.CMMCore;
 import mmcorej.StrVector;
 import org.micromanager.Studio;
+import org.micromanager.events.ConfigGroupChangedEvent;
+import org.micromanager.events.PropertiesChangedEvent;
+import org.micromanager.events.PropertyChangedEvent;
 
 /**
  * Class referencing the devices loaded in Micro-Manager and their device properties.
@@ -20,6 +24,7 @@ public class MMPropertiesRegistry {
    private final Logger logger_;
    private final HashMap<String, MMDevice> devices_;
    private final HashMap<String, MMProperty> properties_;
+   private boolean registeredForEvents_ = false;
 
    /**
     * Constructor. Calls a private initialization method to extract the devices and their
@@ -142,6 +147,84 @@ public class MMPropertiesRegistry {
       Iterator<String> it = properties_.keySet().iterator();
       while (it.hasNext()) {
          properties_.get(it.next()).clearAllListeners();
+      }
+   }
+
+   /**
+    * Subscribes the registry to the Micro-Manager event bus so that the EMU GUI refreshes when
+    * device properties or configuration groups are changed outside of EMU (e.g. via pycro-manager,
+    * the Property Browser, or hardware-initiated changes). Should be called once the registry,
+    * including the configuration groups, has been fully populated. Calling it more than once has
+    * no effect.
+    */
+   public void registerForEvents() {
+      if (!registeredForEvents_) {
+         studio_.events().registerForEvents(this);
+         registeredForEvents_ = true;
+      }
+   }
+
+   /**
+    * Unsubscribes the registry from the Micro-Manager event bus. Called when EMU shuts down to
+    * avoid leaking a dead subscriber. Calling it when not registered has no effect.
+    */
+   public void unregisterFromEvents() {
+      if (registeredForEvents_) {
+         studio_.events().unregisterForEvents(this);
+         registeredForEvents_ = false;
+      }
+   }
+
+   /**
+    * Handles a single device property change originating outside of EMU (e.g. a pycro-manager
+    * {@code core.set_property(device, property, value)} call, the Property Browser, or hardware).
+    * Re-reads the authoritative value from the core and notifies all UIProperty listeners.
+    *
+    * <p>This callback is posted on the EDT by
+    * {@link org.micromanager.events.internal.CoreEventCallback}.
+    *
+    * @param event Micro-Manager property changed event.
+    */
+   @Subscribe
+   public void onPropertyChanged(PropertyChangedEvent event) {
+      String hash = event.getDevice() + "-" + event.getProperty();
+      MMProperty prop = properties_.get(hash);
+      if (prop != null) {
+         // source == null => no originating UIProperty to exclude, notify all listeners.
+         prop.updateMMProperty();
+      }
+   }
+
+   /**
+    * Handles the coarse "properties changed" callback by refreshing every tracked device property.
+    * This catches bulk changes and devices that only emit the global callback rather than a
+    * per-property one. Configuration groups are handled separately by
+    * {@link #onConfigGroupChanged(ConfigGroupChangedEvent)}.
+    *
+    * @param event Micro-Manager properties changed event.
+    */
+   @Subscribe
+   public void onPropertiesChanged(PropertiesChangedEvent event) {
+      for (MMProperty prop : properties_.values()) {
+         if (!(prop instanceof PresetGroupAsMMProperty)) {
+            prop.updateMMProperty();
+         }
+      }
+   }
+
+   /**
+    * Handles a configuration group / preset change originating outside of EMU (e.g. a
+    * pycro-manager {@code core.set_config(group, preset)} call). Refreshes the corresponding
+    * {@link PresetGroupAsMMProperty} so that the UIProperty bound to the group updates.
+    *
+    * @param event Micro-Manager configuration group changed event.
+    */
+   @Subscribe
+   public void onConfigGroupChanged(ConfigGroupChangedEvent event) {
+      String hash = PresetGroupAsMMProperty.KEY_MMCONFDEVICE + "-" + event.getGroupName();
+      MMProperty prop = properties_.get(hash);
+      if (prop != null) {
+         prop.updateMMProperty();
       }
    }
 }
